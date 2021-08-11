@@ -18,20 +18,20 @@ namespace MarketingAutomation.ODP
 
         private readonly Injected<IContentLoader> ContentLoader;
 
+        private IEnumerable<IContent> _formContents = Enumerable.Empty<IContent>();
+
         public override object Run(object input)
         {
             string str = string.Empty;
-            bool validProfileSave = false;
-            string listId = string.Empty;
-            bool consentGiven = false;
-            string email = string.Empty;
-
             if (this.SubmissionData == null)
             {
                 return str;
             }
 
+            bool validProfileSave = false;
+            string email = string.Empty;
             Dictionary<string, string> postedFormDictionary = new Dictionary<string, string>();
+
             foreach (KeyValuePair<string, object> pair in this.SubmissionData.Data)
             {
                 if (!pair.Key.ToLower().StartsWith("systemcolumn") && pair.Value != null)
@@ -41,9 +41,9 @@ namespace MarketingAutomation.ODP
             }
 
             var mappings = base.ActiveExternalFieldMappingTable;
-
             if (mappings != null)
             {
+                // Attributes used to be sent to the members profile
                 Dictionary<string, string> formAttributes = new Dictionary<string, string>();
 
                 foreach (var item in mappings)
@@ -70,52 +70,76 @@ namespace MarketingAutomation.ODP
                     validProfileSave = this._odpService.Service.SaveProfileInformation(email, formAttributes);
                 }
 
-                var currentForm = ContentLoader.Service.Get<IContent>(FormIdentity.Guid);
-                if (currentForm != null && currentForm is FormContainerBlock formContainerBlock)
+                if (validProfileSave)
                 {
-                    if (formContainerBlock.ElementsArea.Items.Any())
+                    bool consentGiven = false;
+                    var currentForm = ContentLoader.Service.Get<IContent>(FormIdentity.Guid);
+
+                    if (currentForm != null && currentForm is FormContainerBlock formContainerBlock)
                     {
-                        var items = formContainerBlock.ElementsArea.Items.Select(x => ContentLoader.Service.Get<IContent>(x.ContentLink));
-
-                        var list = items.FirstOrDefault(x => x is ODPListFormBlock);
-                        if (list != null && list is ODPListFormBlock listFormBlock)
+                        if (formContainerBlock.ElementsArea.Items.Any())
                         {
-                            listId = listFormBlock.ListId;
-                        }
+                            _formContents = formContainerBlock.ElementsArea.Items.Select(x => ContentLoader.Service.Get<IContent>(x.ContentLink));
 
-                        var listConsent = items.FirstOrDefault(x => x is ODPListConsentFormBlock);
-                        if (listConsent != null)
-                        {
-                            var id = $"__field_{listConsent.ContentLink.ToReferenceWithoutVersion().ID}";
-                            if (SubmissionData.Data.ContainsKey(id))
+                            // Try to get the list the editor would like the user to be added too.
+                            var listId = TryGetListId();
+
+                            // Check to see if user has consented to add to a list if selected
+                            if (!string.IsNullOrWhiteSpace(listId))
                             {
-                                var consentStringValue = SubmissionData.Data[id].ToString();
-                                if (bool.TryParse(SubmissionData.Data[id].ToString(), out bool consentGivenValue))
+                                consentGiven = TryGetUserConsent();
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(listId) && !string.IsNullOrWhiteSpace(email))
+                            {
+                                var listSubscription = new ODPListSubscribeRequest()
                                 {
-                                    consentGiven = consentGivenValue;
-                                }
-                                else if (consentStringValue.Equals("Yes", System.StringComparison.OrdinalIgnoreCase) || consentStringValue.Equals("y", System.StringComparison.OrdinalIgnoreCase) || consentStringValue.Equals("on", System.StringComparison.OrdinalIgnoreCase))
-                                {
-                                    consentGiven = true;
-                                }
+                                    ListId = listId,
+                                    Email = email,
+                                    Subscribed = consentGiven  // Will add to list but without consent if set to false
+                                };
+                                this._odpService.Service.AddToList(listSubscription);
                             }
                         }
                     }
                 }
             }
 
-            if (!string.IsNullOrWhiteSpace(listId) && validProfileSave)
-            {
-                var listSubscription = new ODPListSubscribeRequest()
-                {
-                    ListId = listId,
-                    Email = email,
-                    Subscribed = consentGiven
-                };
-                this._odpService.Service.AddToList(listSubscription);
-            }
-
             return str;
+        }
+
+        private string TryGetListId()
+        {
+            string listId = string.Empty;
+            var odpListFormBlock = _formContents.FirstOrDefault(x => x is ODPListFormBlock);
+            if (odpListFormBlock != null && odpListFormBlock is ODPListFormBlock listFormBlock)
+            {
+                listId = listFormBlock.ListId;
+            }
+            return listId;
+        }
+
+        private bool TryGetUserConsent()
+        {
+            bool consentGiven = false;
+            var listConsent = _formContents.FirstOrDefault(x => x is ODPListConsentFormBlock);
+            if (listConsent != null)
+            {
+                var id = $"__field_{listConsent.ContentLink.ToReferenceWithoutVersion().ID}";
+                if (SubmissionData.Data.ContainsKey(id))
+                {
+                    var consentStringValue = SubmissionData.Data[id].ToString();
+                    if (bool.TryParse(SubmissionData.Data[id].ToString(), out bool consentGivenValue))
+                    {
+                        consentGiven = consentGivenValue;
+                    }
+                    else if (consentStringValue.Equals("Yes", System.StringComparison.OrdinalIgnoreCase) || consentStringValue.Equals("y", System.StringComparison.OrdinalIgnoreCase) || consentStringValue.Equals("on", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        consentGiven = true;
+                    }
+                }
+            }
+            return consentGiven;
         }
 
         public string ObjectType
