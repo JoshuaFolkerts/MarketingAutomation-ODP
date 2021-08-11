@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!--Please copy this lang file into /wwwroot/lang folder-->
+<languages>
+  <language name="English" id="en">
+    <episerver>
+      <forms>
+        <externalsystems>
+          <MarketingAutomation.ODP.ODPListFeed>
+            <displayname>ODP System Database</displayname>
+          </MarketingAutomation.ODP.ODPListFeed>
+        </externalsystems>
+      </forms>
+    </episerver>
+  </language>
+</languages>
